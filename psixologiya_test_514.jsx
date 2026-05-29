@@ -564,6 +564,7 @@ export default function App() {
   const [answers, setAnswers] = useState({});
   const [timeLeft, setTimeLeft] = useState(7200);
   const [running, setRunning] = useState(false);
+  const [helpedQuestions, setHelpedQuestions] = useState({});
   const [showReview, setShowReview] = useState(false);
   const [reviewFilter, setReviewFilter] = useState("all");
   const [browseSub, setBrowseSub] = useState("all");
@@ -581,6 +582,7 @@ export default function App() {
   function startExam() {
     const e = buildExam(config);
     setExam(e); setCurrent(0); setAnswers({});
+    setHelpedQuestions({});
     setTimeLeft(7200); setRunning(true);
     setShowReview(false); setScreen("exam");
   }
@@ -760,6 +762,8 @@ export default function App() {
     const subj = SUBJECTS.find(s => s.key === q.subject);
     const progress = ((current + 1) / exam.length) * 100;
     const urgent = timeLeft < 300;
+    const helpShown = helpedQuestions[q.id];
+    const correctIdx = q.shuffledOptions.findIndex(opt => opt.correct);
 
     return (
       <div style={{ minHeight: "100vh", background: BG, fontFamily: "'Segoe UI',sans-serif", display: "flex", flexDirection: "column" }}>
@@ -784,15 +788,23 @@ export default function App() {
             <p style={{ color: "#fff", fontSize: 16, lineHeight: 1.65, margin: 0 }}>{q.text}</p>
           </div>
 
+          <Btn onClick={() => setHelpedQuestions(p => ({ ...p, [q.id]: true }))}
+            disabled={helpShown}
+            style={{ width: "100%", background: helpShown ? "rgba(46,204,113,0.12)" : "rgba(245,166,35,0.12)", border: `1px solid ${helpShown ? "rgba(46,204,113,0.35)" : "rgba(245,166,35,0.35)"}`, borderRadius: 12, padding: "10px 14px", color: helpShown ? "#68d391" : "#f6c56f", fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
+            {helpShown ? `Yordam: to'g'ri javob ${["A","B","C","D"][correctIdx]}` : "Yordam"}
+          </Btn>
+
           {q.shuffledOptions.map((opt, i) => {
             const sel = answers[q.id] === i;
+            const correctHelp = helpShown && opt.correct;
             return (
               <Btn key={i} onClick={() => setAnswers(p => ({ ...p, [q.id]: i }))}
-                style={{ width: "100%", background: sel ? `${subj?.color || "#6c63ff"}22` : "rgba(255,255,255,0.04)", border: `2px solid ${sel ? (subj?.color || "#6c63ff") : "rgba(255,255,255,0.08)"}`, borderRadius: 13, padding: "13px 15px", textAlign: "left", color: sel ? "#e2e8f0" : "#c4c4c4", fontSize: 14, lineHeight: 1.5, marginBottom: 8, display: "flex", gap: 10, alignItems: "flex-start", transition: "all 0.15s" }}>
-                <span style={{ minWidth: 26, height: 26, borderRadius: 7, background: sel ? (subj?.color || "#6c63ff") : "rgba(255,255,255,0.09)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12, color: sel ? "#fff" : "#718096", flexShrink: 0 }}>
+                style={{ width: "100%", background: correctHelp ? "rgba(46,204,113,0.14)" : sel ? `${subj?.color || "#6c63ff"}22` : "rgba(255,255,255,0.04)", border: `2px solid ${correctHelp ? "#2ecc71" : sel ? (subj?.color || "#6c63ff") : "rgba(255,255,255,0.08)"}`, borderRadius: 13, padding: "13px 15px", textAlign: "left", color: correctHelp ? "#d8f8e5" : sel ? "#e2e8f0" : "#c4c4c4", fontSize: 14, lineHeight: 1.5, marginBottom: 8, display: "flex", gap: 10, alignItems: "flex-start", transition: "all 0.15s" }}>
+                <span style={{ minWidth: 26, height: 26, borderRadius: 7, background: correctHelp ? "#2ecc71" : sel ? (subj?.color || "#6c63ff") : "rgba(255,255,255,0.09)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12, color: (sel || correctHelp) ? "#fff" : "#718096", flexShrink: 0 }}>
                   {["A","B","C","D"][i]}
                 </span>
-                <span style={{ paddingTop: 3 }}>{opt.text}</span>
+                <span style={{ paddingTop: 3, flex: 1 }}>{opt.text}</span>
+                {correctHelp && <span style={{ color: "#68d391", fontSize: 12, fontWeight: 800, whiteSpace: "nowrap", paddingTop: 4 }}>To'g'ri</span>}
               </Btn>
             );
           })}
