@@ -529,36 +529,74 @@ const SUBJECTS = [
   { key: "umumiy", label: "Umumiy Psixologiya", maxQ: 217, color: "#2ecc71", emoji: "📚" },
 ];
 
-const DEFAULT_CONFIG = { sotsial: 15, taraqqiyot: 15, umumiy: 20 };
+const TICKET_COUNT = 11;
+const QUESTIONS_PER_TICKET = 50;
+const NON_REPEAT_TICKETS = 10;
+const TOTAL_QUESTIONS = SUBJECTS.reduce((sum, s) => sum + questions[s.key].length, 0);
 
-function shuffle(arr) {
+function hashString(value) {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function seededShuffle(arr, seed) {
   const a = [...arr];
+  let state = seed >>> 0;
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    state = Math.imul(state ^ (state >>> 15), 2246822507);
+    state = Math.imul(state ^ (state >>> 13), 3266489909);
+    state = (state ^ (state >>> 16)) >>> 0;
+    const j = state % (i + 1);
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
 }
 
-function buildExam(config) {
-  const exam = [];
-  for (const s of SUBJECTS) {
-    const pool = questions[s.key];
-    const n = Math.min(config[s.key] || s.maxQ, pool.length);
-    const picked = shuffle(pool).slice(0, n);
-    for (const q of picked) {
-      const shuffledOptions = shuffle(q.options.map((o, i) => ({ text: o, correct: i === q.answer })));
-      exam.push({ ...q, shuffledOptions, subject: s.key });
-    }
-  }
-  return shuffle(exam);
+function getAllQuestions() {
+  return SUBJECTS.flatMap(s => questions[s.key].map(q => ({ ...q, subject: s.key })));
 }
+
+function withStableOptions(q, ticketNumber, index) {
+  const shuffledOptions = seededShuffle(
+    q.options.map((o, i) => ({ text: o, correct: i === q.answer })),
+    hashString(`${ticketNumber}-${q.id}`)
+  );
+  return { ...q, examId: `${ticketNumber}-${index}-${q.id}`, shuffledOptions };
+}
+
+function buildTickets() {
+  const all = getAllQuestions();
+  const tickets = [];
+
+  for (let i = 0; i < NON_REPEAT_TICKETS; i++) {
+    tickets.push(all.slice(i * QUESTIONS_PER_TICKET, (i + 1) * QUESTIONS_PER_TICKET));
+  }
+
+  const remaining = all.slice(NON_REPEAT_TICKETS * QUESTIONS_PER_TICKET);
+  const repeated = seededShuffle(all.slice(0, NON_REPEAT_TICKETS * QUESTIONS_PER_TICKET), 51411)
+    .slice(0, QUESTIONS_PER_TICKET - remaining.length);
+  tickets.push([...remaining, ...repeated]);
+
+  return tickets;
+}
+
+const TICKETS = buildTickets();
+
+function buildTicketExam(ticketNumber) {
+  return (TICKETS[ticketNumber - 1] || TICKETS[0]).map((q, index) => withStableOptions(q, ticketNumber, index));
+}
+
+const answerKey = (q) => q.examId || q.id;
 
 const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
 export default function App() {
   const [screen, setScreen] = useState("home");
-  const [config, setConfig] = useState(DEFAULT_CONFIG);
+  const [selectedTicket, setSelectedTicket] = useState(1);
   const [exam, setExam] = useState([]);
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState({});
@@ -570,7 +608,7 @@ export default function App() {
   const [browseSub, setBrowseSub] = useState("all");
   const [browseSearch, setBrowseSearch] = useState("");
 
-  const totalQ = config.sotsial + config.taraqqiyot + config.umumiy;
+  const selectedTicketQuestions = TICKETS[selectedTicket - 1] || [];
 
   useEffect(() => {
     if (screen !== "exam" || !running) return;
@@ -580,7 +618,7 @@ export default function App() {
   }, [screen, running, timeLeft]);
 
   function startExam() {
-    const e = buildExam(config);
+    const e = buildTicketExam(selectedTicket);
     setExam(e); setCurrent(0); setAnswers({});
     setHelpedQuestions({});
     setTimeLeft(7200); setRunning(true);
@@ -589,7 +627,7 @@ export default function App() {
 
   function finishExam() { setRunning(false); setScreen("result"); }
 
-  const score = exam.reduce((acc, q) => acc + (answers[q.id] !== undefined && q.shuffledOptions[answers[q.id]]?.correct ? 2 : 0), 0);
+  const score = exam.reduce((acc, q) => acc + (answers[answerKey(q)] !== undefined && q.shuffledOptions[answers[answerKey(q)]]?.correct ? 2 : 0), 0);
   const maxScore = exam.length * 2;
   const pct = maxScore > 0 ? (score / maxScore) * 100 : 0;
   const correctCount = score / 2;
@@ -598,14 +636,14 @@ export default function App() {
 
   const subjectStats = SUBJECTS.map(s => {
     const sq = exam.filter(q => q.subject === s.key);
-    const correct = sq.filter(q => answers[q.id] !== undefined && q.shuffledOptions[answers[q.id]]?.correct).length;
+    const correct = sq.filter(q => answers[answerKey(q)] !== undefined && q.shuffledOptions[answers[answerKey(q)]]?.correct).length;
     return { ...s, total: sq.length, correct };
   });
 
   const reviewedExam = exam.filter(q => {
-    if (reviewFilter === "wrong") return answers[q.id] !== undefined && !q.shuffledOptions[answers[q.id]]?.correct;
-    if (reviewFilter === "correct") return q.shuffledOptions[answers[q.id] ?? -1]?.correct;
-    if (reviewFilter === "unanswered") return answers[q.id] === undefined;
+    if (reviewFilter === "wrong") return answers[answerKey(q)] !== undefined && !q.shuffledOptions[answers[answerKey(q)]]?.correct;
+    if (reviewFilter === "correct") return q.shuffledOptions[answers[answerKey(q)] ?? -1]?.correct;
+    if (reviewFilter === "unanswered") return answers[answerKey(q)] === undefined;
     return true;
   });
 
@@ -634,7 +672,7 @@ export default function App() {
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{ fontSize: 60, marginBottom: 6 }}>🎓</div>
           <h1 style={{ color: "#fff", fontSize: 32, fontWeight: 900, margin: "0 0 8px", letterSpacing: -1 }}>Psixologiya Testi</h1>
-          <p style={{ color: "#718096", margin: 0, fontSize: 14 }}>Davlat imtihoniga tayyorgarlik • 3 fan • <span style={{ color: "#6c63ff", fontWeight: 700 }}>514 ta savol bazasi</span></p>
+          <p style={{ color: "#718096", margin: 0, fontSize: 14 }}>Davlat imtihoniga tayyorgarlik • {TICKET_COUNT} bilet • <span style={{ color: "#6c63ff", fontWeight: 700 }}>{TOTAL_QUESTIONS} ta savol bazasi</span></p>
         </div>
 
         {SUBJECTS.map((s, i) => (
@@ -649,7 +687,7 @@ export default function App() {
         ))}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, margin: "18px 0 24px" }}>
-          {[["514", "Savol bazasi", "#6c63ff"], ["3", "Fan bo'limi", "#f5a623"], ["100", "Max ball", "#2ecc71"]].map(([v, l, c]) => (
+          {[[TOTAL_QUESTIONS, "Savol bazasi", "#6c63ff"], [TICKET_COUNT, "Bilet", "#f5a623"], [QUESTIONS_PER_TICKET, "Har biletda", "#2ecc71"]].map(([v, l, c]) => (
             <Card key={l} style={{ padding: "14px 8px", textAlign: "center" }}>
               <div style={{ color: c, fontWeight: 900, fontSize: 24 }}>{v}</div>
               <div style={{ color: "#718096", fontSize: 12, marginTop: 2 }}>{l}</div>
@@ -658,7 +696,7 @@ export default function App() {
         </div>
 
         <Btn onClick={() => setScreen("config")} style={{ width: "100%", background: "linear-gradient(135deg,#6c63ff,#5a52d5)", borderRadius: 16, padding: "15px", color: "#fff", fontSize: 17, fontWeight: 700, boxShadow: "0 8px 30px rgba(108,99,255,0.4)", marginBottom: 10 }}>
-          Testni Boshlash →
+          Bilet Tanlash →
         </Btn>
         <Btn onClick={() => setScreen("browse")} style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 16, padding: "13px", color: "#e2e8f0", fontSize: 15 }}>
           📖 Savol Bazasini Ko'rish
@@ -667,46 +705,37 @@ export default function App() {
     </div>
   );
 
-  // ═══ CONFIG ══════════════════════════════════════════════
+  // ═══ TICKETS ═════════════════════════════════════════════
   if (screen === "config") return (
     <div style={{ minHeight: "100vh", background: BG, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Segoe UI',sans-serif", padding: 20 }}>
-      <Card style={{ maxWidth: 500, width: "100%", padding: 30 }}>
+      <Card style={{ maxWidth: 620, width: "100%", padding: 30 }}>
         <Btn onClick={() => setScreen("home")} style={{ background: "none", color: "#718096", fontSize: 13, marginBottom: 16, padding: 0 }}>← Orqaga</Btn>
-        <h2 style={{ color: "#fff", fontSize: 21, fontWeight: 800, marginBottom: 4 }}>⚙️ Test Sozlamalari</h2>
-        <p style={{ color: "#718096", fontSize: 13, marginBottom: 26 }}>Har bo'lim uchun savol sonini tanlang — tasodifiy tanlanadi</p>
+        <h2 style={{ color: "#fff", fontSize: 21, fontWeight: 800, marginBottom: 4 }}>🎫 Bilet Tanlash</h2>
+        <p style={{ color: "#718096", fontSize: 13, marginBottom: 22 }}>1-10 biletlar takrorlanmas 50 tadan savol. 11-biletda qolgan 14 ta savol va 36 ta takroriy mashq savoli bor.</p>
 
-        {SUBJECTS.map(s => (
-          <div key={s.key} style={{ marginBottom: 22 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ color: "#e2e8f0", fontSize: 14 }}>{s.emoji} {s.label}</span>
-              <span style={{ color: s.color, fontWeight: 800, fontSize: 17 }}>{config[s.key]}</span>
-            </div>
-            <input type="range" min={5} max={s.maxQ} value={config[s.key]}
-              onChange={e => setConfig(p => ({ ...p, [s.key]: +e.target.value }))}
-              style={{ width: "100%", accentColor: s.color, marginBottom: 4 }} />
-            <div style={{ display: "flex", gap: 6 }}>
-              {[5, 15, Math.round(s.maxQ / 2), s.maxQ].map(v => (
-                <Btn key={v} onClick={() => setConfig(p => ({ ...p, [s.key]: v }))}
-                  style={{ background: config[s.key] === v ? s.color : "rgba(255,255,255,0.07)", borderRadius: 6, padding: "2px 8px", color: config[s.key] === v ? "#fff" : "#718096", fontSize: 11 }}>
-                  {v}
-                </Btn>
-              ))}
-            </div>
-          </div>
-        ))}
-
-        <div style={{ background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between" }}>
-          <span style={{ color: "#a0aec0", fontSize: 14 }}>Jami savollar:</span>
-          <span style={{ color: "#fff", fontWeight: 700 }}>{totalQ} ta</span>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(135px,1fr))", gap: 10, marginBottom: 16 }}>
+          {TICKETS.map((ticket, i) => {
+            const ticketNumber = i + 1;
+            const selected = selectedTicket === ticketNumber;
+            const repeatedCount = ticketNumber === TICKET_COUNT ? QUESTIONS_PER_TICKET - (TOTAL_QUESTIONS - NON_REPEAT_TICKETS * QUESTIONS_PER_TICKET) : 0;
+            return (
+              <Btn key={ticketNumber} onClick={() => setSelectedTicket(ticketNumber)}
+                style={{ background: selected ? "linear-gradient(135deg,#6c63ff,#5a52d5)" : "rgba(255,255,255,0.06)", border: `1px solid ${selected ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.1)"}`, borderRadius: 12, padding: "13px 12px", color: "#fff", textAlign: "left", boxShadow: selected ? "0 8px 24px rgba(108,99,255,0.28)" : "none" }}>
+                <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 4 }}>Bilet {ticketNumber}</div>
+                <div style={{ color: selected ? "rgba(255,255,255,0.82)" : "#a0aec0", fontSize: 12 }}>{ticket.length} ta savol</div>
+                {ticketNumber === TICKET_COUNT && <div style={{ color: selected ? "#e9d8fd" : "#f6c56f", fontSize: 11, marginTop: 4 }}>{repeatedCount} ta takroriy</div>}
+              </Btn>
+            );
+          })}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
-          <Btn onClick={() => setConfig(DEFAULT_CONFIG)} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "11px", color: "#e2e8f0", fontSize: 13 }}>↩ Standart (50)</Btn>
-          <Btn onClick={() => setConfig({ sotsial: 149, taraqqiyot: 148, umumiy: 217 })} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: "11px", color: "#e2e8f0", fontSize: 13 }}>📚 Hammasi (514)</Btn>
+        <div style={{ background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", gap: 12 }}>
+          <span style={{ color: "#a0aec0", fontSize: 14 }}>Tanlangan:</span>
+          <span style={{ color: "#fff", fontWeight: 700 }}>Bilet {selectedTicket} · {selectedTicketQuestions.length} ta savol</span>
         </div>
 
         <Btn onClick={startExam} style={{ width: "100%", background: "linear-gradient(135deg,#6c63ff,#5a52d5)", borderRadius: 14, padding: "14px", color: "#fff", fontSize: 16, fontWeight: 700 }}>
-          Testni Boshlash ✓
+          Bilet {selectedTicket} ni Boshlash ✓
         </Btn>
       </Card>
     </div>
@@ -736,7 +765,7 @@ export default function App() {
         {filteredBrowse.map((q, i) => {
           const subj = SUBJECTS.find(s => s.key === q.subject);
           return (
-            <div key={q.id} style={{ background: "rgba(255,255,255,0.04)", borderRadius: 14, padding: "14px 16px", marginBottom: 8, border: "1px solid rgba(255,255,255,0.07)" }}>
+            <div key={`${q.subject}-${q.id}-${i}`} style={{ background: "rgba(255,255,255,0.04)", borderRadius: 14, padding: "14px 16px", marginBottom: 8, border: "1px solid rgba(255,255,255,0.07)" }}>
               <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                 <span style={{ color: "#718096", fontSize: 12, minWidth: 28 }}>#{i+1}</span>
                 <span style={{ color: "#e2e8f0", fontSize: 14, flex: 1, lineHeight: 1.5 }}>{q.text}</span>
@@ -762,7 +791,8 @@ export default function App() {
     const subj = SUBJECTS.find(s => s.key === q.subject);
     const progress = ((current + 1) / exam.length) * 100;
     const urgent = timeLeft < 300;
-    const helpShown = helpedQuestions[q.id];
+    const qKey = answerKey(q);
+    const helpShown = helpedQuestions[qKey];
     const correctIdx = q.shuffledOptions.findIndex(opt => opt.correct);
 
     return (
@@ -788,17 +818,17 @@ export default function App() {
             <p style={{ color: "#fff", fontSize: 16, lineHeight: 1.65, margin: 0 }}>{q.text}</p>
           </div>
 
-          <Btn onClick={() => setHelpedQuestions(p => ({ ...p, [q.id]: true }))}
+          <Btn onClick={() => setHelpedQuestions(p => ({ ...p, [qKey]: true }))}
             disabled={helpShown}
             style={{ width: "100%", background: helpShown ? "rgba(46,204,113,0.12)" : "rgba(245,166,35,0.12)", border: `1px solid ${helpShown ? "rgba(46,204,113,0.35)" : "rgba(245,166,35,0.35)"}`, borderRadius: 12, padding: "10px 14px", color: helpShown ? "#68d391" : "#f6c56f", fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
             {helpShown ? `Yordam: to'g'ri javob ${["A","B","C","D"][correctIdx]}` : "Yordam"}
           </Btn>
 
           {q.shuffledOptions.map((opt, i) => {
-            const sel = answers[q.id] === i;
+            const sel = answers[qKey] === i;
             const correctHelp = helpShown && opt.correct;
             return (
-              <Btn key={i} onClick={() => setAnswers(p => ({ ...p, [q.id]: i }))}
+              <Btn key={i} onClick={() => setAnswers(p => ({ ...p, [qKey]: i }))}
                 style={{ width: "100%", background: correctHelp ? "rgba(46,204,113,0.14)" : sel ? `${subj?.color || "#6c63ff"}22` : "rgba(255,255,255,0.04)", border: `2px solid ${correctHelp ? "#2ecc71" : sel ? (subj?.color || "#6c63ff") : "rgba(255,255,255,0.08)"}`, borderRadius: 13, padding: "13px 15px", textAlign: "left", color: correctHelp ? "#d8f8e5" : sel ? "#e2e8f0" : "#c4c4c4", fontSize: 14, lineHeight: 1.5, marginBottom: 8, display: "flex", gap: 10, alignItems: "flex-start", transition: "all 0.15s" }}>
                 <span style={{ minWidth: 26, height: 26, borderRadius: 7, background: correctHelp ? "#2ecc71" : sel ? (subj?.color || "#6c63ff") : "rgba(255,255,255,0.09)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12, color: (sel || correctHelp) ? "#fff" : "#718096", flexShrink: 0 }}>
                   {["A","B","C","D"][i]}
@@ -831,7 +861,7 @@ export default function App() {
             {exam.map((eq, i) => (
               <Btn key={i} onClick={() => setCurrent(i)}
                 style={{ width: 26, height: 26, borderRadius: 5, fontSize: 10, fontWeight: 700,
-                  background: i === current ? "#6c63ff" : answers[eq.id] !== undefined ? "#2ecc71" : "rgba(255,255,255,0.09)",
+                  background: i === current ? "#6c63ff" : answers[answerKey(eq)] !== undefined ? "#2ecc71" : "rgba(255,255,255,0.09)",
                   color: "#fff" }}>
                 {i + 1}
               </Btn>
@@ -909,11 +939,11 @@ export default function App() {
                 </div>
                 <div style={{ maxHeight: 480, overflowY: "auto" }}>
                   {reviewedExam.map((q) => {
-                    const a = answers[q.id];
+                    const a = answers[answerKey(q)];
                     const correct = a !== undefined && q.shuffledOptions[a]?.correct;
                     const correctIdx = q.shuffledOptions.findIndex(o => o.correct);
                     return (
-                      <div key={q.id} style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                      <div key={answerKey(q)} style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
                         <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
                           <span style={{ fontSize: 14 }}>{correct ? "✅" : a === undefined ? "⬜" : "❌"}</span>
                           <span style={{ color: "#e2e8f0", fontSize: 13, flex: 1, lineHeight: 1.5 }}>{q.text}</span>
