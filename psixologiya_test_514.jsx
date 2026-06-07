@@ -529,7 +529,9 @@ const SUBJECTS = [
   { key: "umumiy", label: "Umumiy Psixologiya", maxQ: 217, color: "#2ecc71", emoji: "📚" },
 ];
 
-const TICKET_COUNT = 11;
+const TICKET_COUNT = 12;
+const RANDOM_TICKET_NUMBER = 12;
+const STATIC_TICKET_COUNT = 11;
 const QUESTIONS_PER_TICKET = 50;
 const NON_REPEAT_TICKETS = 10;
 const TOTAL_QUESTIONS = SUBJECTS.reduce((sum, s) => sum + questions[s.key].length, 0);
@@ -551,6 +553,15 @@ function seededShuffle(arr, seed) {
     state = Math.imul(state ^ (state >>> 13), 3266489909);
     state = (state ^ (state >>> 16)) >>> 0;
     const j = state % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function randomShuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
@@ -580,6 +591,7 @@ function buildTickets() {
   const repeated = seededShuffle(all.slice(0, NON_REPEAT_TICKETS * QUESTIONS_PER_TICKET), 51411)
     .slice(0, QUESTIONS_PER_TICKET - remaining.length);
   tickets.push([...remaining, ...repeated]);
+  tickets.push(Array.from({ length: QUESTIONS_PER_TICKET }));
 
   return tickets;
 }
@@ -587,6 +599,12 @@ function buildTickets() {
 const TICKETS = buildTickets();
 
 function buildTicketExam(ticketNumber) {
+  if (ticketNumber === RANDOM_TICKET_NUMBER) {
+    return randomShuffle(getAllQuestions())
+      .slice(0, QUESTIONS_PER_TICKET)
+      .map((q, index) => withStableOptions(q, ticketNumber, index));
+  }
+
   return (TICKETS[ticketNumber - 1] || TICKETS[0]).map((q, index) => withStableOptions(q, ticketNumber, index));
 }
 
@@ -711,19 +729,21 @@ export default function App() {
       <Card style={{ maxWidth: 620, width: "100%", padding: 30 }}>
         <Btn onClick={() => setScreen("home")} style={{ background: "none", color: "#718096", fontSize: 13, marginBottom: 16, padding: 0 }}>← Orqaga</Btn>
         <h2 style={{ color: "#fff", fontSize: 21, fontWeight: 800, marginBottom: 4 }}>🎫 Bilet Tanlash</h2>
-        <p style={{ color: "#718096", fontSize: 13, marginBottom: 22 }}>1-10 biletlar takrorlanmas 50 tadan savol. 11-biletda qolgan 14 ta savol va 36 ta takroriy mashq savoli bor.</p>
+        <p style={{ color: "#718096", fontSize: 13, marginBottom: 22 }}>1-10 biletlar takrorlanmas 50 tadan savol. 11-biletda qolgan 14 ta savol va 36 ta takroriy mashq savoli bor. 12-bilet har boshlanganda 514 ta savoldan random tanlanadi.</p>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(135px,1fr))", gap: 10, marginBottom: 16 }}>
           {TICKETS.map((ticket, i) => {
             const ticketNumber = i + 1;
             const selected = selectedTicket === ticketNumber;
-            const repeatedCount = ticketNumber === TICKET_COUNT ? QUESTIONS_PER_TICKET - (TOTAL_QUESTIONS - NON_REPEAT_TICKETS * QUESTIONS_PER_TICKET) : 0;
+            const repeatedCount = ticketNumber === STATIC_TICKET_COUNT ? QUESTIONS_PER_TICKET - (TOTAL_QUESTIONS - NON_REPEAT_TICKETS * QUESTIONS_PER_TICKET) : 0;
+            const isRandomTicket = ticketNumber === RANDOM_TICKET_NUMBER;
             return (
               <Btn key={ticketNumber} onClick={() => setSelectedTicket(ticketNumber)}
                 style={{ background: selected ? "linear-gradient(135deg,#6c63ff,#5a52d5)" : "rgba(255,255,255,0.06)", border: `1px solid ${selected ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.1)"}`, borderRadius: 12, padding: "13px 12px", color: "#fff", textAlign: "left", boxShadow: selected ? "0 8px 24px rgba(108,99,255,0.28)" : "none" }}>
-                <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 4 }}>Bilet {ticketNumber}</div>
+                <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 4 }}>Bilet {ticketNumber}{isRandomTicket ? " · Random" : ""}</div>
                 <div style={{ color: selected ? "rgba(255,255,255,0.82)" : "#a0aec0", fontSize: 12 }}>{ticket.length} ta savol</div>
-                {ticketNumber === TICKET_COUNT && <div style={{ color: selected ? "#e9d8fd" : "#f6c56f", fontSize: 11, marginTop: 4 }}>{repeatedCount} ta takroriy</div>}
+                {ticketNumber === STATIC_TICKET_COUNT && <div style={{ color: selected ? "#e9d8fd" : "#f6c56f", fontSize: 11, marginTop: 4 }}>{repeatedCount} ta takroriy</div>}
+                {isRandomTicket && <div style={{ color: selected ? "#e9d8fd" : "#68d391", fontSize: 11, marginTop: 4 }}>Har safar yangi random</div>}
               </Btn>
             );
           })}
