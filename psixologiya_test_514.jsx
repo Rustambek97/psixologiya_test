@@ -743,7 +743,7 @@ export default function App() {
                 <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 4 }}>Bilet {ticketNumber}{isRandomTicket ? " · Random" : ""}</div>
                 <div style={{ color: selected ? "rgba(255,255,255,0.82)" : "#a0aec0", fontSize: 12 }}>{ticket.length} ta savol</div>
                 {ticketNumber === STATIC_TICKET_COUNT && <div style={{ color: selected ? "#e9d8fd" : "#f6c56f", fontSize: 11, marginTop: 4 }}>{repeatedCount} ta takroriy</div>}
-                {isRandomTicket && <div style={{ color: selected ? "#e9d8fd" : "#68d391", fontSize: 11, marginTop: 4 }}>Har safar yangi random</div>}
+                {isRandomTicket && <div style={{ color: selected ? "#e9d8fd" : "#68d391", fontSize: 11, marginTop: 4 }}>Har safar yangi savollar</div>}
               </Btn>
             );
           })}
